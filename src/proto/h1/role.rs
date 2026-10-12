@@ -1313,6 +1313,11 @@ impl Http1Transaction for Client {
 
         *msg.req_method = Some(msg.head.subject.0.clone());
 
+        if msg.head.version == Version::HTTP_2 {
+            debug!("request with HTTP2 version coerced to HTTP/1.1");
+            msg.head.version = Version::HTTP_11;
+        }
+
         let body = Client::set_length(msg.head, msg.body);
 
         let init_cap = 30 + msg.head.headers.len() * AVERAGE_HEADER_SIZE;
@@ -1346,10 +1351,6 @@ impl Http1Transaction for Client {
         match msg.head.version {
             Version::HTTP_10 => extend(dst, b"HTTP/1.0"),
             Version::HTTP_11 => extend(dst, b"HTTP/1.1"),
-            Version::HTTP_2 => {
-                debug!("request with HTTP2 version coerced to HTTP/1.1");
-                extend(dst, b"HTTP/1.1");
-            }
             other => panic!("unexpected request version: {other:?}"),
         }
         extend(dst, b"\r\n");
