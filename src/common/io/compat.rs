@@ -49,7 +49,7 @@ where
             }
         };
 
-        let n_init = new_init - init;
+        let n_init = new_init - filled;
         // SAFETY:
         // 1. `tbuf.assume_init(n_init)` is safe because `crate::rt::Read::poll_read`
         //    guarantees that the bytes written into the buffer were initialized.
