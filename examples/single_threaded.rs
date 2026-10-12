@@ -62,6 +62,10 @@ impl HttpBody for Body {
 fn main() {
     pretty_env_logger::init();
 
+    // Bind both servers before starting their clients, so no client connects too early.
+    let listener_http2 = bind(([127, 0, 0, 1], 3000).into());
+    let listener_http1 = bind(([127, 0, 0, 1], 3001).into());
+
     let server_http2 = thread::spawn(move || {
         // Configure a runtime for the server that runs everything on the current thread
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -71,7 +75,7 @@ fn main() {
 
         // Combine it with a `LocalSet,  which means it can spawn !Send futures...
         let local = tokio::task::LocalSet::new();
-        local.block_on(&rt, http2_server()).unwrap();
+        local.block_on(&rt, http2_server(listener_http2)).unwrap();
     });
 
     let client_http2 = thread::spawn(move || {
@@ -100,7 +104,7 @@ fn main() {
 
         // Combine it with a `LocalSet,  which means it can spawn !Send futures...
         let local = tokio::task::LocalSet::new();
-        local.block_on(&rt, http1_server()).unwrap();
+        local.block_on(&rt, http1_server(listener_http1)).unwrap();
     });
 
     let client_http1 = thread::spawn(move || {
@@ -120,17 +124,21 @@ fn main() {
             .unwrap();
     });
 
-    server_http2.join().unwrap();
     client_http2.join().unwrap();
-
-    server_http1.join().unwrap();
     client_http1.join().unwrap();
+
+    server_http2.join().unwrap();
+    server_http1.join().unwrap();
 }
 
-async fn http1_server() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3001));
+fn bind(addr: SocketAddr) -> std::net::TcpListener {
+    let listener = std::net::TcpListener::bind(addr).expect("bind");
+    listener.set_nonblocking(true).expect("set_nonblocking");
+    listener
+}
 
-    let listener = TcpListener::bind(addr).await?;
+async fn http1_server(listener: std::net::TcpListener) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::from_std(listener)?;
 
     // For each connection, clone the counter to use in our service...
     let counter = Rc::new(Cell::new(0));
@@ -216,14 +224,14 @@ async fn http1_client(url: hyper::Uri) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-async fn http2_server() -> Result<(), Box<dyn std::error::Error>> {
+async fn http2_server(listener: std::net::TcpListener) -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = io::stdout();
 
-    let addr: SocketAddr = ([127, 0, 0, 1], 3000).into();
+    let addr = listener.local_addr()?;
     // Using a !Send request counter is fine on 1 thread...
     let counter = Rc::new(Cell::new(0));
 
-    let listener = TcpListener::bind(addr).await?;
+    let listener = TcpListener::from_std(listener)?;
 
     stdout
         .write_all(format!("Listening on http://{}", addr).as_bytes())
