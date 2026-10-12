@@ -39,15 +39,18 @@ fi
 # Expand just the ffi module
 if ! RUSTFLAGS='--cfg hyper_unstable_ffi' cargo expand --features client,http1,http2,ffi ::ffi 2> $WORK_DIR/expand_stderr.err > $WORK_DIR/expanded.rs; then
     cat $WORK_DIR/expand_stderr.err
+    exit 1
 fi
 
 # Bindgen!
-if ! cbindgen \
+if cbindgen \
     --config "$CAPI_DIR/cbindgen.toml" \
     --lockfile "$CAPI_DIR/../Cargo.lock" \
     --output "$header_file" \
     "${@}"\
     $WORK_DIR/expanded.rs 2> $WORK_DIR/cbindgen_stderr.err; then
+    exit 0
+else
     bindgen_exit_code=$?
     if [[ "--verify" == "$verify_flag" ]]; then
         echo "Changes from previous header (old < > new)"
@@ -58,5 +61,3 @@ if ! cbindgen \
     fi
     exit $bindgen_exit_code
 fi
-
-exit 0
