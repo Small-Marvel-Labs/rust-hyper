@@ -493,11 +493,15 @@ where
         }
     }
 
-    /// Writes every interim (1xx) head the service has queued so far.
+    /// Writes the interim (1xx) heads the service has queued so far, while the write
+    /// buffer has room; the rest stay queued, holding back the service's sender.
     #[cfg(feature = "server")]
     fn write_informational(&mut self, cx: &mut Context<'_>) {
-        while let Poll::Ready(Some(head)) = self.dispatch.poll_informational(cx) {
-            self.conn.write_informational(head);
+        while self.conn.can_buffer_body() {
+            match self.dispatch.poll_informational(cx) {
+                Poll::Ready(Some(head)) => self.conn.write_informational(head),
+                _ => break,
+            }
         }
     }
 

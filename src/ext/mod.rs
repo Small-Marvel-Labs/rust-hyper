@@ -661,29 +661,35 @@ impl fmt::Debug for ExpectContinue {
 /// hyper inserts one into each request's extensions. Every [`send`](Self::send)
 /// writes the head (`HTTP/1.1 <status> <reason>` plus the given headers, or an
 /// HTTP/2 HEADERS frame) to the client as soon as the connection can write. Sends
-/// after the final response head has been written are dropped.
+/// after the final response head has been written are dropped. An HTTP/1 connection
+/// takes heads only while its write buffer has room, the rest staying queued, and a
+/// sender queues at most 16 heads not yet taken.
 #[cfg(all(any(feature = "http1", feature = "http2"), feature = "server"))]
 #[derive(Clone, Debug)]
 pub struct InformationalSender {
-    tx: tokio::sync::mpsc::UnboundedSender<http::Response<()>>,
+    tx: tokio::sync::mpsc::Sender<http::Response<()>>,
 }
 
 #[cfg(all(any(feature = "http1", feature = "http2"), feature = "server"))]
 impl InformationalSender {
     /// Queues an interim head. Returns the response back when its status is not
-    /// 1xx, is 101 Switching Protocols, or when the connection no longer accepts interim heads.
+    /// 1xx, is 101 Switching Protocols, when the connection no longer accepts interim heads,
+    /// or when 16 are already queued.
     pub fn send(&self, res: http::Response<()>) -> Result<(), http::Response<()>> {
         if !res.status().is_informational() || res.status() == http::StatusCode::SWITCHING_PROTOCOLS
         {
             return Err(res);
         }
-        self.tx.send(res).map_err(|err| err.0)
+        self.tx.try_send(res).map_err(|err| match err {
+            tokio::sync::mpsc::error::TrySendError::Full(res)
+            | tokio::sync::mpsc::error::TrySendError::Closed(res) => res,
+        })
     }
 }
 
 #[cfg(all(any(feature = "http1", feature = "http2"), feature = "server"))]
 pub(crate) struct InformationalReceiver {
-    rx: tokio::sync::mpsc::UnboundedReceiver<http::Response<()>>,
+    rx: tokio::sync::mpsc::Receiver<http::Response<()>>,
 }
 
 #[cfg(all(any(feature = "http1", feature = "http2"), feature = "server"))]
@@ -698,7 +704,7 @@ impl InformationalReceiver {
 
 #[cfg(all(any(feature = "http1", feature = "http2"), feature = "server"))]
 pub(crate) fn informational_channel() -> (InformationalSender, InformationalReceiver) {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, rx) = tokio::sync::mpsc::channel(16);
     (InformationalSender { tx }, InformationalReceiver { rx })
 }
 
