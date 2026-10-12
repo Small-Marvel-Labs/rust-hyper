@@ -4146,6 +4146,12 @@ where
             break;
         }
 
+        if n == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "read_until reached EOF",
+            ));
+        }
         if pos == buf.len() {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
