@@ -537,7 +537,7 @@ ffi_fn! {
         match unsafe { raw_name_value(name, name_len, value, value_len) } {
             Ok((name, value, orig_name)) => {
                 headers.headers.append(&name, value);
-                headers.orig_casing.append(&name, orig_name.clone());
+                headers.orig_casing.append_parsed(&name, orig_name.clone());
                 headers.orig_order.append(name);
                 hyper_code::HYPERE_OK
             }

@@ -225,10 +225,24 @@ impl HeaderCaseMap {
     }
 
     /// Records another spelling of `name`, in order of appearance.
-    pub fn append<N>(&mut self, name: N, orig: Bytes)
+    ///
+    /// # Errors
+    ///
+    /// Fails, recording nothing, unless `orig` is `name` in some ASCII case, as the
+    /// HTTP/1 encoders write it in place of `name`.
+    pub fn append<N>(&mut self, name: N, orig: Bytes) -> Result<(), InvalidHeaderSpelling>
     where
-        N: IntoHeaderName,
+        N: IntoHeaderName + AsRef<str>,
     {
+        if !orig.eq_ignore_ascii_case(name.as_ref().as_bytes()) {
+            return Err(InvalidHeaderSpelling(()));
+        }
+        self.0.append(name, orig);
+        Ok(())
+    }
+
+    /// Records another spelling of `name`, which `orig` was parsed into.
+    pub(crate) fn append_parsed(&mut self, name: &HeaderName, orig: Bytes) {
         self.0.append(name, orig);
     }
 
@@ -243,6 +257,21 @@ impl HeaderCaseMap {
         self.1.get_all(name).iter().nth(nth)
     }
 }
+
+/// The error [`HeaderCaseMap::append`] returns for a spelling of another header name.
+#[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
+#[derive(Debug)]
+pub struct InvalidHeaderSpelling(());
+
+#[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
+impl std::fmt::Display for InvalidHeaderSpelling {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("spelling is not of its header name")
+    }
+}
+
+#[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
+impl std::error::Error for InvalidHeaderSpelling {}
 
 #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
 impl Default for HeaderCaseMap {

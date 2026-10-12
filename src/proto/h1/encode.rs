@@ -477,7 +477,7 @@ fn trailer_extensions(raw: Option<&(RawTrailers, Option<TrailerSpacing>)>) -> ht
                             trailing: trailing.clone(),
                         },
                     ),
-                    None => case.append(&name, spelling.clone()),
+                    None => case.append_parsed(&name, spelling.clone()),
                 }
                 order.append(name);
             }

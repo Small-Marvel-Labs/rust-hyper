@@ -1241,7 +1241,7 @@ impl Http1Transaction for Client {
                 }
 
                 if let Some(header_case_map) = &mut header_case_map {
-                    header_case_map.append(&name, slice.slice(header.name.0..header.name.1));
+                    header_case_map.append_parsed(&name, slice.slice(header.name.0..header.name.1));
                 }
                 if let Some(header_order) = &mut header_order {
                     header_order.append(&name);
@@ -3375,7 +3375,9 @@ mod tests {
 
         let mut orig_cases = HeaderCaseMap::default();
         orig_cases.insert(name.clone(), Bytes::from_static(b"X-Empty"));
-        orig_cases.append(name, Bytes::from_static(b"X-EMPTY"));
+        orig_cases
+            .append(name, Bytes::from_static(b"X-EMPTY"))
+            .unwrap();
 
         let mut dst = Vec::new();
         super::write_headers_original_case(&headers, &orig_cases, &mut dst, false);
@@ -3391,7 +3393,7 @@ mod tests {
         for (spelling, value) in [("X-Rep", "1"), ("Other", "o"), ("x-REP", "2"), ("X-REP", "3")] {
             let name = HeaderName::from_bytes(spelling.as_bytes()).unwrap();
             headers.append(&name, value.parse().unwrap());
-            case.append(&name, Bytes::from(spelling));
+            case.append(&name, Bytes::from(spelling)).unwrap();
             order.append(name);
         }
         headers.append("x-rep", "4".parse().unwrap());
@@ -3419,7 +3421,7 @@ mod tests {
         for (spelling, value) in [("X-Rep", "1"), ("Other", "o"), ("x-REP", "2"), ("X-REP", "3")] {
             let name = HeaderName::from_bytes(spelling.as_bytes()).unwrap();
             head.headers.append(&name, value.parse().unwrap());
-            case.append(&name, Bytes::from(spelling));
+            case.append(&name, Bytes::from(spelling)).unwrap();
             order.append(name);
         }
         head.extensions.insert(case);
