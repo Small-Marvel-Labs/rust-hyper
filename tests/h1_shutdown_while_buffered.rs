@@ -34,7 +34,9 @@ mod support;
 #[derive(Debug, Default)]
 struct PendingStreamStatistics {
     bytes_written: usize,
-    total_attempted: usize,
+    // Bytes the latest write was handed but did not write, still buffered by hyper
+    unwritten: usize,
+    blocked_writes: usize,
     shutdown_called_with_buffered: bool,
     buffered_at_shutdown: usize,
 }
@@ -83,22 +85,23 @@ impl AsyncWrite for PendingStream {
     ) -> Poll<std::io::Result<usize>> {
         self.write_count += 1;
 
-        let mut stats = self.stats.lock().unwrap();
-        stats.total_attempted += buf.len();
-
         if self.write_count == 1 {
             // First write: partial only
             let partial = std::cmp::min(buf.len(), self.write_chunk_size);
-            drop(stats);
 
             let result = Pin::new(&mut self.inner).poll_write(cx, &buf[..partial]);
             if let Poll::Ready(Ok(n)) = result {
-                self.stats.lock().unwrap().bytes_written += n;
+                let mut stats = self.stats.lock().unwrap();
+                stats.bytes_written += n;
+                stats.unwritten = buf.len() - n;
             }
             return result;
         }
 
         // Block all further writes to simulate pending buffer
+        let mut stats = self.stats.lock().unwrap();
+        stats.blocked_writes += 1;
+        stats.unwritten = buf.len();
         Poll::Pending
     }
 
@@ -107,7 +110,7 @@ impl AsyncWrite for PendingStream {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
         let mut stats = self.stats.lock().unwrap();
-        let buffered = stats.total_attempted - stats.bytes_written;
+        let buffered = stats.unwritten;
 
         if buffered > 0 {
             eprintln!(
@@ -126,9 +129,8 @@ impl AsyncWrite for PendingStream {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
         let stats = self.stats.lock().unwrap();
-        let buffered = stats.total_attempted - stats.bytes_written;
 
-        if buffered > 0 {
+        if stats.unwritten > 0 {
             return Poll::Pending;
         }
 
@@ -181,7 +183,7 @@ async fn test_no_premature_shutdown_while_buffered() {
             .await
             .unwrap();
 
-        stream.write_all(b"A\r\nHello World\r\n").await.unwrap();
+        stream.write_all(b"B\r\nHello World\r\n").await.unwrap();
         stream.write_all(b"0\r\n\r\n").await.unwrap();
         stream.flush().await.unwrap();
 
@@ -189,17 +191,24 @@ async fn test_no_premature_shutdown_while_buffered() {
         sleep(Duration::from_secs(2)).await;
     });
 
-    // Wait for completion
+    // The connection cannot finish while its response is blocked
     let result = timeout(Duration::from_millis(900), server).await;
 
     let stats = stats.lock().unwrap();
 
     assert!(
         !stats.shutdown_called_with_buffered,
-        "shutdown() called with {} bytes still buffered (wrote {} of {} bytes)",
-        stats.buffered_at_shutdown, stats.bytes_written, stats.total_attempted
+        "shutdown() called with {} bytes still buffered (wrote {} bytes)",
+        stats.buffered_at_shutdown, stats.bytes_written
     );
-    if let Ok(Ok(conn_result)) = result {
-        conn_result.ok();
-    }
+    assert!(
+        stats.bytes_written > 0 && stats.blocked_writes > 0 && stats.unwritten > 0,
+        "response was not left partially written and blocked: {:?}",
+        stats
+    );
+    assert!(
+        result.is_err(),
+        "connection ended with its response blocked: {:?}",
+        result
+    );
 }
