@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use hyper::header::{self, HeaderMap, HeaderName};
 use hyper::service::service_fn;
 use hyper::upgrade::Upgraded;
 use hyper::{Method, Request, Response};
@@ -50,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn proxy(
-    req: Request<hyper::body::Incoming>,
+    mut req: Request<hyper::body::Incoming>,
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     println!("req: {:?}", req);
 
@@ -69,10 +70,21 @@ async fn proxy(
         // connection be upgraded, so we can't return a response inside
         // `on_upgrade` future.
         if let Some(addr) = host_addr(req.uri()) {
+            let server = match TcpStream::connect(addr.as_str()).await {
+                Ok(server) => server,
+                Err(e) => {
+                    eprintln!("CONNECT to {} failed: {}", addr, e);
+                    let mut resp = Response::new(full("CONNECT target is unreachable"));
+                    *resp.status_mut() = http::StatusCode::BAD_GATEWAY;
+
+                    return Ok(resp);
+                }
+            };
+
             tokio::task::spawn(async move {
                 match hyper::upgrade::on(req).await {
                     Ok(upgraded) => {
-                        if let Err(e) = tunnel(upgraded, addr).await {
+                        if let Err(e) = tunnel(upgraded, server).await {
                             eprintln!("server io error: {}", e);
                         };
                     }
@@ -89,6 +101,35 @@ async fn proxy(
             Ok(resp)
         }
     } else {
+        // Removes the fields that only apply to one connection (RFC 9110, Section 7.6.1):
+        // those its Connection field names, and those known to be connection-specific.
+        fn remove_hop_by_hop_headers(headers: &mut HeaderMap) {
+            let named: Vec<HeaderName> = headers
+                .get_all(header::CONNECTION)
+                .iter()
+                .filter_map(|value| value.to_str().ok())
+                .flat_map(|value| value.split(','))
+                .filter_map(|name| HeaderName::from_bytes(name.trim().as_bytes()).ok())
+                .collect();
+            for name in named {
+                headers.remove(name);
+            }
+            for name in [
+                header::CONNECTION,
+                HeaderName::from_static("proxy-connection"),
+                HeaderName::from_static("keep-alive"),
+                header::TE,
+                header::TRANSFER_ENCODING,
+                header::UPGRADE,
+            ] {
+                headers.remove(name);
+            }
+        }
+
+        remove_hop_by_hop_headers(req.headers_mut());
+        // Credentials for this proxy, not for the origin.
+        req.headers_mut().remove(header::PROXY_AUTHORIZATION);
+
         let host = req.uri().host().expect("uri has no host");
         let port = req.uri().port_u16().unwrap_or(80);
 
@@ -106,7 +147,8 @@ async fn proxy(
             }
         });
 
-        let resp = sender.send_request(req).await?;
+        let mut resp = sender.send_request(req).await?;
+        remove_hop_by_hop_headers(resp.headers_mut());
         Ok(resp.map(|b| b.boxed()))
     }
 }
@@ -127,11 +169,8 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
         .boxed()
 }
 
-// Create a TCP connection to host:port, build a tunnel between the connection and
-// the upgraded connection
-async fn tunnel(upgraded: Upgraded, addr: String) -> std::io::Result<()> {
-    // Connect to remote server
-    let mut server = TcpStream::connect(addr).await?;
+// Build a tunnel between the upgraded connection and the connection to host:port
+async fn tunnel(upgraded: Upgraded, mut server: TcpStream) -> std::io::Result<()> {
     let mut upgraded = TokioIo::new(upgraded);
 
     // Proxying data
