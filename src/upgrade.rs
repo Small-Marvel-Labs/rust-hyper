@@ -46,7 +46,7 @@ use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Wake, Waker};
 
 use crate::rt::{Read, ReadBufCursor, Write};
 use bytes::Bytes;
@@ -72,7 +72,29 @@ pub struct Upgraded {
 /// If no upgrade was available, or it doesn't succeed, yields an `Error`.
 #[derive(Clone)]
 pub struct OnUpgrade {
-    rx: Option<Arc<Mutex<oneshot::Receiver<crate::Result<Upgraded>>>>>,
+    rx: Option<Arc<Mutex<SharedUpgrade>>>,
+}
+
+// The upgrade an `OnUpgrade` and its clones wait on: each poll registers its task,
+// all of them woken once the upgrade is done, and the first to see it done takes it.
+struct SharedUpgrade {
+    rx: Option<oneshot::Receiver<crate::Result<Upgraded>>>,
+    waiters: Arc<Waiters>,
+}
+
+struct Waiters(Mutex<Vec<Waker>>);
+
+impl Wake for Waiters {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        let wakers = std::mem::take(&mut *self.0.lock().panic_if_poisoned());
+        for waker in wakers {
+            waker.wake();
+        }
+    }
 }
 
 /// The deconstructed parts of an [`Upgraded`] type.
@@ -124,7 +146,10 @@ pub(super) fn pending() -> (Pending, OnUpgrade) {
     (
         Pending { tx },
         OnUpgrade {
-            rx: Some(Arc::new(Mutex::new(rx))),
+            rx: Some(Arc::new(Mutex::new(SharedUpgrade {
+                rx: Some(rx),
+                waiters: Arc::new(Waiters(Mutex::new(Vec::new()))),
+            }))),
         },
     )
 }
@@ -228,20 +253,33 @@ impl Future for OnUpgrade {
     type Output = Result<Upgraded, crate::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match &self.rx {
-            Some(rx) => {
-                Pin::new(&mut *rx.lock().panic_if_poisoned())
-                    .poll(cx)
-                    .map(|res| match res {
-                        Ok(Ok(upgraded)) => Ok(upgraded),
-                        Ok(Err(err)) => Err(err),
-                        Err(_oneshot_canceled) => {
-                            Err(crate::Error::new_canceled().with(UpgradeExpected))
-                        }
-                    })
+        let mut shared = match &self.rx {
+            Some(shared) => shared.lock().panic_if_poisoned(),
+            None => return Poll::Ready(Err(crate::Error::new_user_no_upgrade())),
+        };
+        let SharedUpgrade { rx, waiters } = &mut *shared;
+        let rx = match rx {
+            Some(rx) => rx,
+            None => return Poll::Ready(Err(crate::Error::new_user_no_upgrade())),
+        };
+
+        {
+            let mut wakers = waiters.0.lock().panic_if_poisoned();
+            if !wakers.iter().any(|waker| waker.will_wake(cx.waker())) {
+                wakers.push(cx.waker().clone());
             }
-            None => Poll::Ready(Err(crate::Error::new_user_no_upgrade())),
         }
+        let waker = Waker::from(waiters.clone());
+        let res = match Pin::new(rx).poll(&mut Context::from_waker(&waker)) {
+            Poll::Ready(res) => res,
+            Poll::Pending => return Poll::Pending,
+        };
+        shared.rx = None;
+        Poll::Ready(match res {
+            Ok(Ok(upgraded)) => Ok(upgraded),
+            Ok(Err(err)) => Err(err),
+            Err(_oneshot_canceled) => Err(crate::Error::new_canceled().with(UpgradeExpected)),
+        })
     }
 }
 
