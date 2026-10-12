@@ -121,11 +121,29 @@ static int print_each_header(void *userdata,
     return HYPER_ITER_CONTINUE;
 }
 
+static int write_all(int fd, const uint8_t *buf, size_t len) {
+    while (len > 0) {
+        ssize_t ret = write(fd, buf, len);
+        if (ret < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+        buf += ret;
+        len -= ret;
+    }
+    return 0;
+}
+
 static int print_each_chunk(void *userdata, const hyper_buf *chunk) {
     const uint8_t *buf = hyper_buf_bytes(chunk);
     size_t len = hyper_buf_len(chunk);
 
-    write(1, buf, len);
+    if (write_all(1, buf, len) < 0) {
+        perror("write");
+        return HYPER_ITER_BREAK;
+    }
 
     return HYPER_ITER_CONTINUE;
 }

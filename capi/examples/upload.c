@@ -140,6 +140,21 @@ static int poll_req_upload(void *userdata,
     return HYPER_POLL_ERROR;
 }
 
+static int write_all(int fd, const uint8_t *buf, size_t len) {
+    while (len > 0) {
+        ssize_t ret = write(fd, buf, len);
+        if (ret < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+        buf += ret;
+        len -= ret;
+    }
+    return 0;
+}
+
 static int print_each_header(void *userdata,
                                          const uint8_t *name,
                                          size_t name_len,
@@ -334,9 +349,13 @@ int main(int argc, char *argv[]) {
 
                 if (task_type == HYPER_TASK_BUF) {
                     hyper_buf *chunk = hyper_task_value(task);
-                    write(1, hyper_buf_bytes(chunk), hyper_buf_len(chunk));
+                    int written = write_all(1, hyper_buf_bytes(chunk), hyper_buf_len(chunk));
                     hyper_buf_free(chunk);
                     hyper_task_free(task);
+                    if (written < 0) {
+                        perror("write");
+                        return 1;
+                    }
 
                     hyper_task *body_data = hyper_body_data(resp_body);
                     hyper_task_set_userdata(body_data, (void *)EXAMPLE_RESP_BODY);
