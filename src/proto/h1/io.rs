@@ -226,12 +226,11 @@ where
         self.read_blocked = false;
         // Get the next amount to allocate, but make sure we don't go over
         // the max read buf size configured.
-        let next = cmp::min(
-            self.read_buf_strategy.next(),
-            self.read_buf_strategy
-                .max()
-                .saturating_sub(self.read_buf.len()),
-        );
+        let permitted = self
+            .read_buf_strategy
+            .max()
+            .saturating_sub(self.read_buf.len());
+        let next = cmp::min(self.read_buf_strategy.next(), permitted);
         if self.read_buf_remaining_mut() < next {
             self.read_buf.reserve(next);
         }
@@ -239,7 +238,8 @@ where
         // SAFETY: ReadBuf and poll_read promise not to set any uninitialized
         // bytes onto `dst`.
         let dst = unsafe { self.read_buf.chunk_mut().as_uninit_slice_mut() };
-        let mut buf = ReadBuf::uninit(dst);
+        let dst_len = cmp::min(dst.len(), permitted);
+        let mut buf = ReadBuf::uninit(&mut dst[..dst_len]);
         match Pin::new(&mut self.io).poll_read(cx, buf.unfilled()) {
             Poll::Ready(Ok(_)) => {
                 let n = buf.filled().len();
