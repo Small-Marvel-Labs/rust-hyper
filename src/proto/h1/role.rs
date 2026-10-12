@@ -1,4 +1,3 @@
-#[cfg(feature = "server")]
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 
