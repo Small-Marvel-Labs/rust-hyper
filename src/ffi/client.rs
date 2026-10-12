@@ -2,6 +2,8 @@ use std::ffi::c_int;
 use std::ptr;
 use std::sync::Arc;
 
+use futures_util::TryFutureExt as _;
+
 use crate::client::conn;
 use crate::rt::Executor as _;
 
@@ -25,6 +27,7 @@ pub struct hyper_clientconn_options {
     http1_allow_obsolete_multiline_headers_in_responses: bool,
     http1_preserve_header_case: bool,
     http1_preserve_header_order: bool,
+    #[cfg(feature = "http2")]
     http2: bool,
     /// Use a `Weak` to prevent cycles.
     exec: WeakExec,
@@ -147,16 +150,13 @@ ffi_fn! {
         // Update request with original-case map of headers
         req.finalize_request();
 
-        let fut = match &mut non_null! { &mut *conn ?= ptr::null_mut() }.tx {
-            Tx::Http1(tx) => futures_util::future::Either::Left(tx.send_request(req.0)),
-            Tx::Http2(tx) => futures_util::future::Either::Right(tx.send_request(req.0)),
+        let task = match &mut non_null! { &mut *conn ?= ptr::null_mut() }.tx {
+            Tx::Http1(tx) => hyper_task::boxed(tx.send_request(req.0).map_ok(hyper_response::wrap)),
+            #[cfg(feature = "http2")]
+            Tx::Http2(tx) => hyper_task::boxed(tx.send_request(req.0).map_ok(hyper_response::wrap)),
         };
 
-        let fut = async move {
-            fut.await.map(hyper_response::wrap)
-        };
-
-        Box::into_raw(hyper_task::boxed(fut))
+        Box::into_raw(task)
     } ?= std::ptr::null_mut()
 }
 
@@ -187,6 +187,7 @@ ffi_fn! {
             http1_allow_obsolete_multiline_headers_in_responses: false,
             http1_preserve_header_case: false,
             http1_preserve_header_order: false,
+            #[cfg(feature = "http2")]
             http2: false,
             exec: WeakExec::new(),
         }))
@@ -252,8 +253,7 @@ ffi_fn! {
 
         #[cfg(not(feature = "http2"))]
         {
-            drop(opts);
-            drop(enabled);
+            let _ = (opts, enabled);
             hyper_code::HYPERE_FEATURE_NOT_ENABLED
         }
     }
