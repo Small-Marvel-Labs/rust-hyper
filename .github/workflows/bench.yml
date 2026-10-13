@@ -7,7 +7,7 @@ on:
 jobs:
   benchmark:
     name: Benchmark
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     strategy:
       matrix:
         bench:
@@ -15,9 +15,6 @@ jobs:
           - pipeline
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@be39649afda95dbf70f87cce95f68b8d5797b296
 
       # Run benchmark and stores the output to a file
       - name: Run benchmark

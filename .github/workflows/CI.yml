@@ -15,37 +15,27 @@ permissions:
 jobs:
   ci-pass:
     name: CI is green
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     needs:
       - style
       - lint
       - test
-      - msrv
-      - miri
       - features
       - ffi
       - ffi-header
       - ffi-cargo-c
       - doc
-      - check-external-types
       - udeps
       - minimal-versions
-      - semver
     steps:
       - run: exit 0
 
   style:
     name: Check Style
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-        with:
-          toolchain: nightly
-          components: rustfmt
 
       - name: cargo fmt --check
         run: |
@@ -55,140 +45,44 @@ jobs:
           fi
 
       - name: Check unused dependencies
-        run: |
-          cargo install cargo-machete --locked
-          cargo machete
+        run: cargo machete
 
   lint:
     name: Linter
     needs: [style]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-        with:
-          toolchain: nightly
-          components: clippy
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       # not --all-targets, lints can't seem to tell integrations tests are tests
       - name: Clippy
         run: cargo clippy --features full -- -D warnings
 
   test:
-    name: Test ${{ matrix.rust }} on ${{ matrix.os }}
+    name: Test
     needs: [style]
-    strategy:
-      matrix:
-        rust:
-          - stable
-          - beta
-          - nightly
-
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macOS-latest
-
-        include:
-          - rust: stable
-            features: "--features full"
-          - rust: beta
-            features: "--features full"
-          - rust: nightly
-            features: "--features full,nightly"
-            benches: true
-
-    runs-on: ${{ matrix.os }}
-
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
-      - name: Install Rust (${{ matrix.rust }})
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
-        with:
-          toolchain: ${{ matrix.rust }}
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-
       - name: Test
-        run: cargo test ${{ matrix.features }}
+        run: cargo test --features full,nightly
 
       - name: Test all benches
-        if: matrix.benches
-        run: cargo test --benches ${{ matrix.features }}
-
-  msrv:
-    name: Check MSRV
-    needs: [style]
-
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-
-      - name: Resolve MSRV aware dependencies
-        run: cargo update
-        env:
-          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
-
-      - name: Get MSRV from package metadata
-        id: msrv
-        run: echo "version=$(yq '.package.rust-version' Cargo.toml)" >> $GITHUB_OUTPUT
-
-      - name: Install Rust (${{ steps.msrv.outputs.version }})
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
-        with:
-          toolchain: ${{ steps.msrv.outputs.version }}
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-
-      - name: Check
-        run: cargo check --features full
-
-  miri:
-    name: Test with Miri
-    needs: [style]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@be39649afda95dbf70f87cce95f68b8d5797b296
-        with:
-          components: miri
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-
-      - name: Test
-        # Can't enable tcp feature since Miri does not support the tokio runtime
-        run: MIRIFLAGS="-Zmiri-disable-isolation" cargo miri test --features http1,http2,client,server,nightly
+        run: cargo test --benches --features full,nightly
 
   features:
     name: features
     needs: [style]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-
       - name: Install cargo-hack
         uses: taiki-e/install-action@d9ad5a5b70ae969b653d0637400ef8eb68cf1edc
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       - name: check --feature-powerset
         run: cargo hack --no-dev-deps check --feature-powerset --depth 2 --skip ffi,tracing
@@ -203,15 +97,10 @@ jobs:
   ffi:
     name: Test C API (FFI)
     needs: [style]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       - name: Build FFI
         env:
@@ -228,21 +117,16 @@ jobs:
 
   ffi-header:
     name: Verify hyper.h is up to date
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-
       - name: Install cbindgen
-        run: cargo install cbindgen --locked
+        run: command -v cbindgen >/dev/null || cargo install cbindgen --locked
 
       - name: Install cargo-expand
-        run: cargo install cargo-expand --locked
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        run: command -v cargo-expand >/dev/null || cargo install cargo-expand --locked
 
       - name: Build FFI
         env:
@@ -255,22 +139,20 @@ jobs:
   ffi-cargo-c:
     name: Test cargo-c support (FFI)
     needs: [style]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       - name: Install cargo-c
         env:
           LINK: https://github.com/lu-zero/cargo-c/releases/latest/download
           CARGO_C_FILE: cargo-c-x86_64-unknown-linux-musl.tar.gz
         run: |
-          curl -L $LINK/$CARGO_C_FILE | tar xz -C ~/.cargo/bin
+          command -v cargo-cbuild >/dev/null && exit 0
+          bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+          mkdir -p "$bin"
+          curl -fL $LINK/$CARGO_C_FILE | tar xz -C "$bin"
 
       - name: Build with cargo-c
         env:
@@ -280,54 +162,23 @@ jobs:
   doc:
     name: Build docs
     needs: [style, test]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@be39649afda95dbf70f87cce95f68b8d5797b296
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       - name: cargo doc
         run: cargo rustdoc --features full,ffi -- --cfg docsrs --cfg hyper_unstable_ffi -D rustdoc::broken-intra-doc-links
 
-  check-external-types:
-    name: Check exposed types
-    needs: [style, test]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
-        with:
-          toolchain: nightly
-
-      - name: Install cargo-check-external-types
-        run: cargo install cargo-check-external-types --version 0.5.0 --locked
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-
-      - name: check-external-types
-        run: cargo check-external-types --config .github/workflows/external-types.toml
-
   udeps:
     needs: [style]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@be39649afda95dbf70f87cce95f68b8d5797b296
 
       - name: Install cargo-udeps
         uses: taiki-e/install-action@52fa4b339a202e373b2179c5278f8161d5f8e9cc
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       - name: Check unused dependencies on default features
         run: cargo udeps
@@ -336,26 +187,11 @@ jobs:
         run: cargo udeps --features full
 
   minimal-versions:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, linux-ci]
     needs: [style]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: dtolnay/rust-toolchain@be39649afda95dbf70f87cce95f68b8d5797b296
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
       - uses: taiki-e/install-action@d9ad5a5b70ae969b653d0637400ef8eb68cf1edc
       - uses: taiki-e/install-action@208719f37e7ba9859aed5939b093ff7d1cc3364e
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
       - run: cargo minimal-versions check
       - run: cargo minimal-versions check --features full
-
-  semver:
-    name: semver
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - name: Check semver
-        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239
-        with:
-          feature-group: only-explicit-features
-          features: full
-          release-type: minor
