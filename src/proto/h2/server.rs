@@ -370,7 +370,7 @@ where
                                 None,
                             )
                         } else {
-                            if content_length.map_or(false, |len| len != 0) {
+                            if content_length.is_some_and(|len| len != 0) {
                                 warn!("h2 connect request with non-zero body not supported");
                                 respond.send_reset(h2::Reason::INTERNAL_ERROR);
                                 continue;
@@ -517,6 +517,7 @@ impl<F, B, E> H2Stream<F, B, E>
 where
     B: Body,
 {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         fut: F,
         connect_parts: Option<ConnectParts>,
@@ -810,7 +811,7 @@ where
                     if let Some(connect_parts) = connect_parts.take() {
                         if res.status().is_success() {
                             if headers::content_length_parse_all(res.headers())
-                                .map_or(false, |len| len != 0)
+                                .is_some_and(|len| len != 0)
                             {
                                 warn!("h2 successful response to CONNECT request with body not supported");
                                 me.reply.send_reset(h2::Reason::INTERNAL_ERROR);

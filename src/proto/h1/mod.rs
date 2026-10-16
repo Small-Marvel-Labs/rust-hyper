@@ -80,6 +80,7 @@ pub(crate) struct ParseContext<'a> {
     on_informational: &'a mut Option<crate::ext::OnInformational>,
     /// The wait for `100 Continue` before a request body is sent, which a 100 ends.
     #[cfg(feature = "client")]
+    #[allow(clippy::option_option)]
     expect_continue: &'a mut Option<Option<std::pin::Pin<Box<dyn crate::rt::Sleep>>>>,
 }
 

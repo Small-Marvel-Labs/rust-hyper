@@ -672,9 +672,12 @@ pub struct InformationalSender {
 
 #[cfg(all(any(feature = "http1", feature = "http2"), feature = "server"))]
 impl InformationalSender {
-    /// Queues an interim head. Returns the response back when its status is not
-    /// 1xx, is 101 Switching Protocols, when the connection no longer accepts interim heads,
-    /// or when 16 are already queued.
+    /// Queues an interim head.
+    ///
+    /// # Errors
+    ///
+    /// Returns the response back when its status is not 1xx, is 101 Switching Protocols,
+    /// when the connection no longer accepts interim heads, or when 16 are already queued.
     pub fn send(&self, res: http::Response<()>) -> Result<(), http::Response<()>> {
         if !res.status().is_informational() || res.status() == http::StatusCode::SWITCHING_PROTOCOLS
         {

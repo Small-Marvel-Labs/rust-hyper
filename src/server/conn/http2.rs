@@ -333,7 +333,7 @@ impl<E> Builder<E> {
     /// builder's SETTINGS at the handshake: the connection reads the client's preface and
     /// requests meanwhile but sends nothing until the preface arrives, which it then
     /// writes ahead of everything else. The connection window then grows only by the
-    /// preface's WINDOW_UPDATE. Lets a server reproduce another server's preface, once
+    /// preface's `WINDOW_UPDATE`. Lets a server reproduce another server's preface, once
     /// known.
     pub fn deferred_preface(&mut self, preface: crate::ext::http2::DeferredPreface) -> &mut Self {
         self.h2_builder.deferred_preface = Some(preface);

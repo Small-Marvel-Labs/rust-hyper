@@ -392,7 +392,9 @@ impl ChunkPlan {
                     }
                 }
             }
-            let len = msg.remaining().min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
+            let len = msg
+                .remaining()
+                .min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
             out.push_data(&mut run, msg.copy_to_bytes(len));
             self.remaining -= len as u64;
             if self.remaining == 0 {
@@ -433,7 +435,10 @@ impl Buf for Segments {
 
     fn advance(&mut self, mut cnt: usize) {
         while cnt > 0 {
-            let front = self.0.front_mut().expect("advance past the end of segments");
+            let front = self
+                .0
+                .front_mut()
+                .expect("advance past the end of segments");
             if cnt < front.len() {
                 front.advance(cnt);
                 return;

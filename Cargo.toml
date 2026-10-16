@@ -11,7 +11,7 @@ authors = ["Sean McArthur <sean@seanmonstar.com>"]
 keywords = ["http", "hyper", "hyperium"]
 categories = ["network-programming", "web-programming::http-client", "web-programming::http-server"]
 edition = "2021"
-rust-version = "1.63" # keep in sync with MSRV.md dev doc
+rust-version = "1.70" # keep in sync with MSRV.md dev doc
 
 include = [
   "Cargo.toml",
@@ -114,6 +114,11 @@ restriction = { level = "warn", priority = -2 }
 # lints to decide on
 
 arithmetic_side_effects = "allow" # TODO: consider
+assert_is_empty = "allow"
+definition_in_module_root = "allow"
+must_use_without_reason = "allow"
+rest_pattern_accessible_field = "allow"
+unnecessary_rest_pattern = "allow"
 as_conversions = "allow" # TODO: tricky
 cast_possible_truncation = "allow" # TODO: consider
 cast_precision_loss = "allow" # TODO: consider
@@ -127,6 +132,7 @@ indexing_slicing = "allow"
 integer_division = "allow"
 integer_division_remainder_used = "allow"
 let_unit_value = "allow"
+manual_let_else = "allow"
 map_err_ignore = "allow"
 map_unwrap_or = "allow"
 match_wild_err_arm = "allow"
@@ -160,6 +166,7 @@ decimal_literal_representation = "allow" # arguably more human-readable
 default_numeric_fallback = "allow" # too many false positives
 expect_used = "allow" # expect is self-documenting
 error_impl_error = "allow" # mod::Error is a fine name
+exhaustive_structs = "allow" # extension records are plain data users build
 field_scoped_visibility_modifiers = "allow" # possibly good idea, noisy for now
 if_not_else = "allow" # order depends on which is more common, not truthiness
 if_then_some_else_none = "allow" # control flow as if better than closures

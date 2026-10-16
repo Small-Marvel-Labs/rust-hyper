@@ -1813,7 +1813,9 @@ pub(crate) fn encode_informational(
 /// request line (RFC 9112 §2.2) are skipped here too.
 #[cfg(feature = "server")]
 fn sanitize_request_target(buf: &[u8]) -> Option<Vec<u8>> {
-    let start = buf.iter().position(|&byte| byte != b'\r' && byte != b'\n')?;
+    let start = buf
+        .iter()
+        .position(|&byte| byte != b'\r' && byte != b'\n')?;
     let line = &buf[start..];
     let line = &line[..line
         .iter()
@@ -3390,7 +3392,12 @@ mod tests {
         let mut headers = HeaderMap::new();
         let mut case = HeaderCaseMap::default();
         let mut order = OriginalHeaderOrder::default();
-        for (spelling, value) in [("X-Rep", "1"), ("Other", "o"), ("x-REP", "2"), ("X-REP", "3")] {
+        for (spelling, value) in [
+            ("X-Rep", "1"),
+            ("Other", "o"),
+            ("x-REP", "2"),
+            ("X-REP", "3"),
+        ] {
             let name = HeaderName::from_bytes(spelling.as_bytes()).unwrap();
             headers.append(&name, value.parse().unwrap());
             case.append(&name, Bytes::from(spelling)).unwrap();
@@ -3418,7 +3425,12 @@ mod tests {
         let mut head = MessageHead::default();
         let mut case = HeaderCaseMap::default();
         let mut order = OriginalHeaderOrder::default();
-        for (spelling, value) in [("X-Rep", "1"), ("Other", "o"), ("x-REP", "2"), ("X-REP", "3")] {
+        for (spelling, value) in [
+            ("X-Rep", "1"),
+            ("Other", "o"),
+            ("x-REP", "2"),
+            ("X-REP", "3"),
+        ] {
             let name = HeaderName::from_bytes(spelling.as_bytes()).unwrap();
             head.headers.append(&name, value.parse().unwrap());
             case.append(&name, Bytes::from(spelling)).unwrap();

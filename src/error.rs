@@ -301,9 +301,8 @@ impl Error {
     /// and the underlying IO reports an error during the shutdown sequence.
     pub fn is_shutdown(&self) -> bool {
         #[cfg(all(feature = "http1", any(feature = "client", feature = "server")))]
-        if matches!(self.inner.kind, Kind::Shutdown) {
-            return true;
-        }
+        return matches!(self.inner.kind, Kind::Shutdown);
+        #[cfg(not(all(feature = "http1", any(feature = "client", feature = "server"))))]
         false
     }
 

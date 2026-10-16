@@ -784,7 +784,7 @@ where
             && head
                 .headers
                 .get(http::header::EXPECT)
-                .map_or(false, |v| v.as_bytes().eq_ignore_ascii_case(b"100-continue"));
+                .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"100-continue"));
 
         self.enforce_version(&mut head);
         if http10_close {
@@ -855,7 +855,7 @@ where
         let outgoing_is_keep_alive = head
             .headers
             .get(CONNECTION)
-            .map_or(false, headers::connection_keep_alive);
+            .is_some_and(headers::connection_keep_alive);
 
         if !outgoing_is_keep_alive {
             match head.version {
@@ -1250,6 +1250,7 @@ struct State {
     /// Set until the request body starts, which waits for `100 Continue` until this sleep
     /// ends.
     #[cfg(feature = "client")]
+    #[allow(clippy::option_option)]
     expect_continue: Option<Option<Pin<Box<dyn Sleep>>>>,
     /// Record the chunk-size lines of the current request's chunked response.
     record_response_chunks: bool,
