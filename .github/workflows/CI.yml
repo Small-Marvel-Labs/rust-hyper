@@ -1,10 +1,16 @@
 name: CI
 on:
   pull_request:
+    paths-ignore: ['**.md', 'docs/**']
   push:
     branches:
       - master
       - wiremason
+    paths-ignore: ['**.md', 'docs/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   RUST_BACKTRACE: 1
@@ -16,6 +22,7 @@ jobs:
   ci-pass:
     name: CI is green
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     needs:
       - style
       - lint
@@ -33,9 +40,12 @@ jobs:
   style:
     name: Check Style
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: cargo fmt --check
         run: |
@@ -51,9 +61,12 @@ jobs:
     name: Linter
     needs: [style]
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       # not --all-targets, lints can't seem to tell integrations tests are tests
       - name: Clippy
@@ -63,9 +76,12 @@ jobs:
     name: Test
     needs: [style]
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: Test
         run: cargo test --features full,nightly
@@ -77,9 +93,12 @@ jobs:
     name: features
     needs: [style]
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@d9ad5a5b70ae969b653d0637400ef8eb68cf1edc
@@ -98,9 +117,12 @@ jobs:
     name: Test C API (FFI)
     needs: [style]
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: Build FFI
         env:
@@ -118,9 +140,12 @@ jobs:
   ffi-header:
     name: Verify hyper.h is up to date
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: Install cbindgen
         run: command -v cbindgen >/dev/null || cargo install cbindgen --locked
@@ -140,9 +165,12 @@ jobs:
     name: Test cargo-c support (FFI)
     needs: [style]
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: Install cargo-c
         env:
@@ -161,11 +189,14 @@ jobs:
 
   doc:
     name: Build docs
-    needs: [style, test]
+    needs: [style]
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: cargo doc
         run: cargo rustdoc --features full,ffi -- --cfg docsrs --cfg hyper_unstable_ffi -D rustdoc::broken-intra-doc-links
@@ -173,9 +204,12 @@ jobs:
   udeps:
     needs: [style]
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: Install cargo-udeps
         uses: taiki-e/install-action@52fa4b339a202e373b2179c5278f8161d5f8e9cc
@@ -188,9 +222,12 @@ jobs:
 
   minimal-versions:
     runs-on: [self-hosted, Linux, X64, linux-ci]
+    timeout-minutes: 30
     needs: [style]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@d9ad5a5b70ae969b653d0637400ef8eb68cf1edc
       - uses: taiki-e/install-action@208719f37e7ba9859aed5939b093ff7d1cc3364e
       - run: cargo minimal-versions check
