@@ -70,9 +70,10 @@ pub struct Upgraded {
 /// A future for a possible HTTP upgrade.
 ///
 /// If no upgrade was available, or it doesn't succeed, yields an `Error`.
-#[derive(Clone)]
 pub struct OnUpgrade {
     rx: Option<Arc<Mutex<SharedUpgrade>>>,
+    // This clone's place in the waiters, which holds its latest task.
+    slot: usize,
 }
 
 // The upgrade an `OnUpgrade` and its clones wait on: each poll registers its task,
@@ -80,9 +81,10 @@ pub struct OnUpgrade {
 struct SharedUpgrade {
     rx: Option<oneshot::Receiver<crate::Result<Upgraded>>>,
     waiters: Arc<Waiters>,
+    next_slot: usize,
 }
 
-struct Waiters(Mutex<Vec<Waker>>);
+struct Waiters(Mutex<Vec<(usize, Waker)>>);
 
 impl Wake for Waiters {
     fn wake(self: Arc<Self>) {
@@ -91,7 +93,7 @@ impl Wake for Waiters {
 
     fn wake_by_ref(self: &Arc<Self>) {
         let wakers = std::mem::take(&mut *self.0.lock().panic_if_poisoned());
-        for waker in wakers {
+        for (_, waker) in wakers {
             waker.wake();
         }
     }
@@ -149,7 +151,9 @@ pub(super) fn pending() -> (Pending, OnUpgrade) {
             rx: Some(Arc::new(Mutex::new(SharedUpgrade {
                 rx: Some(rx),
                 waiters: Arc::new(Waiters(Mutex::new(Vec::new()))),
+                next_slot: 1,
             }))),
+            slot: 0,
         },
     )
 }
@@ -240,7 +244,7 @@ impl fmt::Debug for Upgraded {
 
 impl OnUpgrade {
     pub(super) fn none() -> Self {
-        OnUpgrade { rx: None }
+        OnUpgrade { rx: None, slot: 0 }
     }
 
     #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
@@ -253,11 +257,13 @@ impl Future for OnUpgrade {
     type Output = Result<Upgraded, crate::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Dropped once the locks are released: it may own another clone.
+        let _replaced: Option<Waker>;
         let mut shared = match &self.rx {
             Some(shared) => shared.lock().panic_if_poisoned(),
             None => return Poll::Ready(Err(crate::Error::new_user_no_upgrade())),
         };
-        let SharedUpgrade { rx, waiters } = &mut *shared;
+        let SharedUpgrade { rx, waiters, .. } = &mut *shared;
         let rx = match rx {
             Some(rx) => rx,
             None => return Poll::Ready(Err(crate::Error::new_user_no_upgrade())),
@@ -265,9 +271,13 @@ impl Future for OnUpgrade {
 
         {
             let mut wakers = waiters.0.lock().panic_if_poisoned();
-            if !wakers.iter().any(|waker| waker.will_wake(cx.waker())) {
-                wakers.push(cx.waker().clone());
-            }
+            let mine = wakers.iter_mut().find(|(slot, _)| *slot == self.slot);
+            _replaced = if let Some((_, waker)) = mine {
+                Some(std::mem::replace(waker, cx.waker().clone()))
+            } else {
+                wakers.push((self.slot, cx.waker().clone()));
+                None
+            };
         }
         let waker = Waker::from(waiters.clone());
         let res = match Pin::new(rx).poll(&mut Context::from_waker(&waker)) {
@@ -280,6 +290,35 @@ impl Future for OnUpgrade {
             Ok(Err(err)) => Err(err),
             Err(_oneshot_canceled) => Err(crate::Error::new_canceled().with(UpgradeExpected)),
         })
+    }
+}
+
+impl Clone for OnUpgrade {
+    fn clone(&self) -> Self {
+        let slot = self.rx.as_ref().map_or(0, |shared| {
+            let mut shared = shared.lock().panic_if_poisoned();
+            shared.next_slot += 1;
+            shared.next_slot - 1
+        });
+        OnUpgrade {
+            rx: self.rx.clone(),
+            slot,
+        }
+    }
+}
+
+impl Drop for OnUpgrade {
+    fn drop(&mut self) {
+        if let Some(shared) = &self.rx {
+            let waiters = Arc::clone(&shared.lock().panic_if_poisoned().waiters);
+            let mut wakers = waiters.0.lock().panic_if_poisoned();
+            let removed = wakers
+                .iter()
+                .position(|(slot, _)| *slot == self.slot)
+                .map(|i| wakers.swap_remove(i));
+            drop(wakers);
+            drop(removed);
+        }
     }
 }
 
