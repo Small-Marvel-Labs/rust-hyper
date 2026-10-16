@@ -480,7 +480,7 @@ pin_project! {
         // Its client's reset, while the service runs on, which it tells the service.
         reset: Option<(ResetRequest, Reason)>,
         // How its client's connection ended, but for a reset, while the service runs on.
-        ended: Option<h2::Error>,
+        ended: Option<(ResetRequest, h2::Error)>,
         stream_reset: Option<crate::ext::StreamReset>,
     }
 }
@@ -742,7 +742,7 @@ where
                         }
                         // Nor once its connection ended.
                         Poll::Ready(_) if me.ended.is_some() => {
-                            let ended = me.ended.take().expect("the connection ended");
+                            let (_, ended) = me.ended.take().expect("the connection ended");
                             return Poll::Ready(Err(crate::Error::new_h2(ended)));
                         }
                         Poll::Ready(Ok(r)) => r,
@@ -764,8 +764,16 @@ where
                                         ) =>
                                 {
                                     debug!("stream's connection ended: {}", e);
-                                    *me.ended = Some(e);
+                                    let Some(request) =
+                                        me.reset_requests.as_ref().and_then(ResetRequests::take)
+                                    else {
+                                        return Poll::Ready(Err(crate::Error::new_h2(e)));
+                                    };
+                                    *me.ended = Some((request, e));
                                     *me.informational = None;
+                                    if let Some(stream_reset) = me.stream_reset.as_ref() {
+                                        stream_reset.reset(Reason::CANCEL.into());
+                                    }
                                     return Poll::Pending;
                                 }
                                 reset => reset.map_err(crate::Error::new_h2)?,
