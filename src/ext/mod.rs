@@ -459,7 +459,8 @@ pub struct TrailerSpacing(pub Arc<OnceLock<Vec<(Bytes, Bytes)>>>);
 /// proxy relaying a received body keeps its chunks and their extensions; bytes past the
 /// record go out one chunk per frame, and a body ending inside a recorded chunk is an
 /// error. It drops each line from the record once written, so a long body's record holds
-/// only the lines still to go out (the last chunk's stays). Clones share the lines, so a
+/// only the lines still to go out (the last chunk's stays). A body whose record holds 4096 lines
+/// not yet written fails. Clones share the lines, so a
 /// proxy can hand a received message's record (or its cell, to another HTTP library) to
 /// the message it relays as the lines arrive; one also reading them takes them from the
 /// received record as they arrive, handing them on to a record of its own that the

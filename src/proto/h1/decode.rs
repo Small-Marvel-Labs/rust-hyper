@@ -261,7 +261,15 @@ impl Decoder {
                         if let Some(raw) = raw_chunks {
                             // The line ends at its CR, which the recorder read too.
                             raw_line.truncate(raw_line.len().saturating_sub(1));
-                            raw.lock().push((*chunk_len, raw_line.split().freeze()));
+                            const MAX_UNRELAYED_LINES: usize = 4096;
+                            let mut lines = raw.lock();
+                            if lines.len() >= MAX_UNRELAYED_LINES {
+                                return Poll::Ready(Err(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "too many recorded chunk-size lines not yet relayed",
+                                )));
+                            }
+                            lines.push((*chunk_len, raw_line.split().freeze()));
                         }
                     }
                     if *state == ChunkedState::End {
